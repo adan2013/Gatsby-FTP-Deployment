@@ -1,3 +1,10 @@
+# Working repository
+repo/
+currentFTP/
+
+# WebStorm
+.idea
+
 # Logs
 logs
 *.log

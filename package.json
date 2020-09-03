@@ -1,0 +1,25 @@
+{
+  "name": "gatsby-ftp-deployment",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "dependencies": {
+    "dir-compare": "^2.3.0",
+    "dotenv": "^8.2.0",
+    "nodemon": "^2.0.4"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "deploy": "node index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/adan2013/Gatsby-FTP-Deployment.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/adan2013/Gatsby-FTP-Deployment/issues"
+  },
+  "homepage": "https://github.com/adan2013/Gatsby-FTP-Deployment#readme"
+}
