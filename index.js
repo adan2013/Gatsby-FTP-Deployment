@@ -1,10 +1,14 @@
 require('dotenv').config()
 
-const fs = require("fs")
+const path = require('path')
+const fs = require('fs')
 const exec = require('child_process').exec
 const dircompare = require('dir-compare')
 
 const runCommand = (cmd, dir, muteErrors, callback) => {
+    callback(true)
+    return //TODO temp
+
     const proc = exec(cmd, { cwd: dir })
     proc.stdout.on('data', data => console.log(data))
     if(!muteErrors) proc.stderr.on('data', data => console.error(data))
@@ -23,9 +27,12 @@ const reportError = (error) => {
 
 
 function print(result) {
-    console.log('Directories are %s', result.same ? 'identical' : 'different')
     console.log('Statistics - equal entries: %s, distinct entries: %s, left only entries: %s, right only entries: %s, differences: %s',
         result.equal, result.distinct, result.left, result.right, result.differences)
+    result.diffSet.forEach(file => {
+        if(file.state === 'left') console.log(`UPLOAD ${path.join(file.path1, file.name1)} TO ${path.join(file.relativePath, file.name1)}`)
+
+    })
 }
 
 
@@ -49,6 +56,7 @@ runCommand('git pull', './repo', false, gitResult => {
                                 })
                                 if(!difference.same) {
                                     //TODO here
+                                    print(difference)
                                 }else{
                                     reportSuccess('Already up to date!')
                                 }
