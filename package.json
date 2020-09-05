@@ -6,6 +6,8 @@
   "dependencies": {
     "dir-compare": "^2.3.0",
     "dotenv": "^8.2.0",
+    "ftp": "^0.3.10",
+    "ncp": "^2.0.0",
     "nodemon": "^2.0.4"
   },
   "devDependencies": {},
