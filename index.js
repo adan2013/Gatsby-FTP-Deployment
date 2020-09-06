@@ -6,6 +6,7 @@ const ncp = require('ncp')
 const ftpClient = require('ftp')
 const exec = require('child_process').exec
 const dircompare = require('dir-compare')
+const { performance } = require('perf_hooks')
 
 const runCommand = (cmd, dir, muteErrors) => {
     return new Promise((resolve, reject) => {
@@ -16,10 +17,18 @@ const runCommand = (cmd, dir, muteErrors) => {
     })
 }
 
+const addLeadingZero = (number) => number < 10 ? '0' + number : number
+
 const reportNextStep = (message) => console.log('\x1b[36m%s\x1b[0m', message)
 
-const reportSuccess = (message) => {
+const reportSuccess = (message, t0) => {
+    const t1 = performance.now()
+    const diff = (t1 - t0) / 1000
+    const min = addLeadingZero(Math.floor(diff / 60))
+    const sec = addLeadingZero(Math.floor(diff - min * 60))
     console.log('\x1b[33m%s\x1b[0m', message)
+    console.log(`Current time: ${new Date().toString()}`)
+    console.log(`Execution time: ${min}:${sec}`)
     process.exit(0)
 }
 
@@ -107,7 +116,7 @@ const uploadFileToFtp = (ftp, file, callback) => {
         })
     }else{
         ftp.mkdir(destination, true, (err) => {
-            console.log(`MKDIR "${destination}"`)
+            console.log(`MKDIR  "${destination}"`)
             err ? reportError(`(ftp-mkdir) ${err} "${destination}"`) : callback()
         })
     }
@@ -124,7 +133,7 @@ const deleteFileFromFtp = (ftp, file, callback) => {
         })
     }else{
         ftp.rmdir(target, { recursive: true }, () => {
-            console.log(`RMDIR "${target}"`)
+            console.log(`RMDIR  "${target}"`)
             callback()
         })
     }
@@ -145,16 +154,17 @@ const saveCurrentSave = () => {
     })
 }
 
+const t0 = performance.now()
 pullGitRepository().then(() => {
     installDependencies().then(() => {
         buildGatsbyWebsite().then(() => {
             compareBuildWithPreviousData().then(diff => {
                 if(diff.same) {
-                    reportSuccess('Already up to date!')
+                    reportSuccess('Already up to date!', t0)
                 }else{
                     syncFtpServer(diff).then(() => {
                         saveCurrentSave().then(() => {
-                            reportSuccess('Website deployed!')
+                            reportSuccess('Website deployed!', t0)
                         }).catch(error => reportError(error))
                     }).catch(error => reportError(error))
                 }
