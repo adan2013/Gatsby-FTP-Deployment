@@ -12,6 +12,7 @@ const { performance } = require('perf_hooks')
 const t0 = performance.now()
 let emailContent = ''
 let changedFiles = []
+let changedFilesCount = 0
 
 const bgColor = {
     NONE: '#ffffff',
@@ -133,6 +134,7 @@ const syncFtpServer = (changes) => {
             addToEmailContent('Connected!', bgColor.NONE)
             reportNextStep('Uploading files...')
             changedFiles = JSON.parse(JSON.stringify(changes.diffSet))
+            changedFilesCount = changedFiles.length
             nextFile(ftp, () => resolve())
         })
         ftp.on('error', (err) => reject(`Critical FTP connection error: ${err}`))
@@ -158,20 +160,31 @@ const nextFile = (ftp, callback) => {
     }
 }
 
+const getUploadPercent = () => {
+    const p = Math.round((changedFilesCount - changedFiles.length) * 100 / changedFilesCount)
+    let s = '['
+    if(p < 10) s+= ' '
+    if(p < 100) s+= ' '
+    s += p + '%]'
+    return s
+}
+
 const uploadFileToFtp = (ftp, file, callback) => {
     const source = path.join(file.path1, file.name1)
     const destination = path.join(file.relativePath, file.name1).replace(/\\/g, '/')
     const isFile = fs.statSync(source).isFile()
     if(isFile) {
+        const txt = `${getUploadPercent()} UPLOAD "${destination}"`
+        console.log(txt)
+        addToEmailContent(txt, bgColor.NONE)
         ftp.put(source, destination, (err) => {
-            console.log(`UPLOAD "${source}" >>> "${destination}"`)
-            addToEmailContent(`UPLOAD "${source}" >>> "${destination}"`, bgColor.NONE)
-            err ? reportError(`(ftp-put) ${err} "${source}" "${destination}"`) : callback()
+            err ? reportError(`(ftp-put) ${err} "${source}" >>> "${destination}"`) : callback()
         })
     }else{
+        const txt = `${getUploadPercent()} MKDIR  "${destination}"`
+        console.log(txt)
+        addToEmailContent(txt, bgColor.NONE)
         ftp.mkdir(destination, true, (err) => {
-            console.log(`MKDIR  "${destination}"`)
-            addToEmailContent(`MKDIR  "${destination}"`, bgColor.NONE)
             err ? reportError(`(ftp-mkdir) ${err} "${destination}"`) : callback()
         })
     }
@@ -182,17 +195,15 @@ const deleteFileFromFtp = (ftp, file, callback) => {
     const target = path.join(file.relativePath, file.name2).replace(/\\/g, '/')
     const isFile = fs.statSync(targetOnPc).isFile()
     if(isFile) {
-        ftp.delete(target, () => {
-            console.log(`DELETE "${target}"`)
-            addToEmailContent(`DELETE "${target}"`, bgColor.NONE)
-            callback()
-        })
+        const txt = `${getUploadPercent()} DELETE "${target}"`
+        console.log(txt)
+        addToEmailContent(txt, bgColor.NONE)
+        ftp.delete(target, () => callback())
     }else{
-        ftp.rmdir(target, { recursive: true }, () => {
-            console.log(`RMDIR  "${target}"`)
-            addToEmailContent(`RMDIR  "${target}"`, bgColor.NONE)
-            callback()
-        })
+        const txt = `${getUploadPercent()} RMDIR  "${target}"`
+        console.log(txt)
+        addToEmailContent(txt, bgColor.NONE)
+        ftp.rmdir(target, { recursive: true }, () => callback())
     }
 }
 
