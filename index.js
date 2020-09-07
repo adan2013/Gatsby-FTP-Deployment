@@ -11,6 +11,7 @@ const { performance } = require('perf_hooks')
 
 const t0 = performance.now()
 let emailContent = ''
+let changedFiles = []
 
 const bgColor = {
     NONE: '#ffffff',
@@ -131,25 +132,8 @@ const syncFtpServer = (changes) => {
             console.log('Connected!')
             addToEmailContent('Connected!', bgColor.NONE)
             reportNextStep('Uploading files...')
-            let runningActions = 0
-            changes.diffSet.forEach(file => {
-                if(file.state === 'left' || file.state === 'distinct') {
-                    runningActions++
-                    uploadFileToFtp(ftp, file, () => runningActions--)
-                }
-                if(file.state === 'right') {
-                    runningActions++
-                    deleteFileFromFtp(ftp, file, () => runningActions--)
-                }
-            })
-            const resolveWhenActionsHaveBeenCompleted = () => {
-                if(runningActions === 0) {
-                    resolve()
-                }else{
-                    setTimeout(resolveWhenActionsHaveBeenCompleted, 500)
-                }
-            }
-            resolveWhenActionsHaveBeenCompleted()
+            changedFiles = JSON.parse(JSON.stringify(changes.diffSet))
+            nextFile(ftp, () => resolve())
         })
         ftp.on('error', (err) => reject(`Critical FTP connection error: ${err}`))
         ftp.connect({
@@ -158,6 +142,20 @@ const syncFtpServer = (changes) => {
             password: process.env.FTP_PASSWORD
         })
     })
+}
+
+const nextFile = (ftp, callback) => {
+    if(changedFiles.length > 0) {
+        const file = changedFiles.shift()
+        if(file.state === 'left' || file.state === 'distinct') {
+            uploadFileToFtp(ftp, file, () => nextFile(ftp, callback))
+        }
+        if(file.state === 'right') {
+            deleteFileFromFtp(ftp, file, () => nextFile(ftp, callback))
+        }
+    }else{
+        callback()
+    }
 }
 
 const uploadFileToFtp = (ftp, file, callback) => {
