@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "dependencies": {
+    "basic-ftp": "^4.6.2",
     "dir-compare": "^2.3.0",
     "dotenv": "^8.2.0",
     "ftp": "^0.3.10",

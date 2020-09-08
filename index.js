@@ -3,7 +3,7 @@ require('dotenv').config()
 const path = require('path')
 const fs = require('fs')
 const ncp = require('ncp')
-const ftpClient = require('ftp')
+const basicFtp = require('basic-ftp')
 const exec = require('child_process').exec
 const dircompare = require('dir-compare')
 const nodemailer = require("nodemailer")
@@ -21,7 +21,7 @@ const bgColor = {
     BLUE: '#0a6a6a'
 }
 
-const addToEmailContent = (message, color) => {
+const addToEmailContent = (message, color = bgColor.NONE) => {
     if(color === bgColor.NONE) {
         emailContent += `${message}<br/>`
     }else{
@@ -31,6 +31,7 @@ const addToEmailContent = (message, color) => {
 }
 
 const sendEmail = async (success, message) => {
+    const globalStyle = `font-family: 'Consolas'`
     const style = `padding: 2px 5px; background-color: ${success ? bgColor.GREEN : bgColor.RED}; color: #ffffff`
     const t1 = performance.now()
     const diff = (t1 - t0) / 1000
@@ -49,12 +50,12 @@ const sendEmail = async (success, message) => {
         from: `Gatsby Deployer <${process.env.MAIL_USER}>`,
         to: process.env.MAIL_DESTINATION_ADDRESS,
         subject: success ? `Website successfully deployed` : `Website deploy failed!`,
-        html: `<div style="${style}">${message}</div>Current time: ${new Date().toString()}<br/>Execution time: ${min}:${sec}<br/><br/><b>Console output:</b><br/>${emailContent}`
+        html: `<div style="${globalStyle}"><div style="${style}">${message}</div>Current time: ${new Date().toString()}<br/>Execution time: ${min}:${sec}<br/><br/><b>Console output:</b><br/>${emailContent}</div>`
     })
 }
 
 const runCommand = (cmd, dir, muteErrors) => {
-    return new Promise((resolve, reject) => {
+    return new Promise(resolve => {
         const proc = exec(cmd, { cwd: dir })
         proc.stdout.on('data', data => {
             console.log(data)
@@ -64,18 +65,18 @@ const runCommand = (cmd, dir, muteErrors) => {
             console.error(data)
             addToEmailContent(data, bgColor.NONE)
         })
-        proc.on('exit', code => code === 0 ? resolve() : reject())
+        proc.on('exit', code => code === 0 ? resolve() : reportError(`Command "${cmd}"`))
     })
 }
 
-const addLeadingZero = (number) => number < 10 ? '0' + number : number
+const addLeadingZero = number => number < 10 ? '0' + number : number
 
-const reportNextStep = (message) => {
+const reportNextStep = message => {
     console.log('\x1b[36m%s\x1b[0m', message)
     addToEmailContent(message, bgColor.BLUE)
 }
 
-const reportSuccess = (message) => {
+const reportSuccess = message => {
     const t1 = performance.now()
     const diff = (t1 - t0) / 1000
     const min = addLeadingZero(Math.floor(diff / 60))
@@ -93,7 +94,16 @@ const reportError = (error) => {
 
 const pullGitRepository = () => {
     reportNextStep('Pulling changes...')
-    return runCommand('git pull', './repo', false)
+    return new Promise(resolve => {
+        runCommand('git pull', './repo', false).then(() => {
+            const txt = `Current commit:`
+            console.log(txt)
+            addToEmailContent(txt, bgColor.NONE)
+            runCommand('git log -1', './repo', false).then(() => {
+                resolve()
+            }).catch(() => reportError('git log -1'))
+        }).catch(() => reportError('git pull'))
+    })
 }
 
 const installDependencies = () => {
@@ -108,7 +118,7 @@ const buildGatsbyWebsite = () => {
 
 const compareBuildWithPreviousData = () => {
     reportNextStep('Comparing build with previous data...')
-    return new Promise((resolve, reject) => {
+    return new Promise(resolve => {
         try {
             fs.mkdirSync('./currentFTP', { recursive: true })
             const diff = dircompare.compareSync('./repo/public', './currentFTP', {
@@ -116,33 +126,36 @@ const compareBuildWithPreviousData = () => {
                 compareContent: true,
                 //compareDate: true,
             })
-            console.log('Statistics: equal: %s, differences: %s, new files: %s, old files: %s', diff.equal, diff.differences, diff.left, diff.right)
-            addToEmailContent(`Statistics: equal: ${diff.equal}, differences: ${diff.differences}, new files: ${diff.left}, old files: ${diff.right}`, bgColor.NONE)
+            const txt = `Statistics: equal: ${diff.equal}, distinct: ${diff.distinct}, new: ${diff.left}, old: ${diff.right}`
+            console.log(txt)
+            addToEmailContent(txt, bgColor.NONE)
             resolve(diff)
         }catch (e) {
-            reject()
+            reportError(`diff-compare (message: ${e})`)
         }
     })
 }
 
-const syncFtpServer = (changes) => {
+const syncFtpServer = changes => {
     reportNextStep('Connecting to the FTP server...')
-    return new Promise((resolve, reject) => {
-        const ftp = new ftpClient()
-        ftp.on('ready', () => {
-            console.log('Connected!')
-            addToEmailContent('Connected!', bgColor.NONE)
-            reportNextStep('Uploading files...')
-            changedFiles = JSON.parse(JSON.stringify(changes.diffSet))
-            changedFilesCount = changedFiles.length
-            nextFile(ftp, () => resolve())
-        })
-        ftp.on('error', (err) => reject(`Critical FTP connection error: ${err}`))
-        ftp.connect({
-            host: process.env.FTP_HOST,
-            user: process.env.FTP_USER,
-            password: process.env.FTP_PASSWORD
-        })
+    return new Promise(resolve => {
+        const ftp = new basicFtp.Client()
+        try {
+            ftp.access({
+                host: process.env.FTP_HOST,
+                user: process.env.FTP_USER,
+                password: process.env.FTP_PASSWORD
+            }).then(() => {
+                console.log('Connected!')
+                addToEmailContent('Connected!', bgColor.NONE)
+                reportNextStep('Uploading files...')
+                changedFiles = changes.diffSet.filter(obj => ['left', 'right', 'distinct'].indexOf(obj.state) >= 0)
+                changedFilesCount = changedFiles.length
+                nextFile(ftp, () => resolve())
+            })
+        }catch (e) {
+            reportError(`Critical FTP connection error (message: ${e})`)
+        }
     })
 }
 
@@ -177,16 +190,18 @@ const uploadFileToFtp = (ftp, file, callback) => {
         const txt = `${getUploadPercent()} UPLOAD "${destination}"`
         console.log(txt)
         addToEmailContent(txt, bgColor.NONE)
-        ftp.put(source, destination, (err) => {
-            err ? reportError(`(ftp-put) ${err} "${source}" >>> "${destination}"`) : callback()
-        })
+        ftp.uploadFrom(source, destination).then(() => {
+            callback()
+        }).catch(() => reportError(`(ftp-put) "${source}" >>> "${destination}"`))
     }else{
         const txt = `${getUploadPercent()} MKDIR  "${destination}"`
         console.log(txt)
         addToEmailContent(txt, bgColor.NONE)
-        ftp.mkdir(destination, true, (err) => {
-            err ? reportError(`(ftp-mkdir) ${err} "${destination}"`) : callback()
-        })
+        ftp.ensureDir(destination).then(() => {
+            ftp.cd('/').then(() => {
+                callback()
+            }).catch(() => reportError(`(ftp-mkdir) "${destination}"`))
+        }).catch(() => reportError(`(ftp-mkdir) "${destination}"`))
     }
 }
 
@@ -198,24 +213,24 @@ const deleteFileFromFtp = (ftp, file, callback) => {
         const txt = `${getUploadPercent()} DELETE "${target}"`
         console.log(txt)
         addToEmailContent(txt, bgColor.NONE)
-        ftp.delete(target, () => callback())
+        ftp.remove(target).then(() => callback())
     }else{
         const txt = `${getUploadPercent()} RMDIR  "${target}"`
         console.log(txt)
         addToEmailContent(txt, bgColor.NONE)
-        ftp.rmdir(target, { recursive: true }, () => callback())
+        ftp.removeDir(target).then(() => callback())
     }
 }
 
 const saveCurrentSave = () => {
     reportNextStep('Saving current state...')
-    return new Promise((resolve, reject) => {
-        fs.rmdir('./currentFTP', { recursive: true }, (err) => {
-            if(err) reject('rmdir currentFTP')
-            fs.mkdir('./currentFTP', { recursive: true }, (err) => {
-                if(err) reject('mkdir currentFTP')
-                ncp('./repo/public', './currentFTP', (err) => {
-                    err ? reject('ncp') : resolve()
+    return new Promise(resolve => {
+        fs.rmdir('./currentFTP', { recursive: true }, err => {
+            if(err) reportError('rmdir currentFTP')
+            fs.mkdir('./currentFTP', { recursive: true }, err => {
+                if(err) reportError('mkdir currentFTP')
+                ncp('./repo/public', './currentFTP', err => {
+                    err ? reportError('ncp') : resolve()
                 })
             })
         })
@@ -232,10 +247,10 @@ pullGitRepository().then(() => {
                     syncFtpServer(diff).then(() => {
                         saveCurrentSave().then(() => {
                             reportSuccess('Website deployed!')
-                        }).catch(error => reportError(error))
-                    }).catch(error => reportError('ftp ' + error))
+                        })
+                    })
                 }
-            }).catch(() => reportError('dir-compare'))
-        }).catch(() => reportError('gatsby build'))
-    }).catch(() => reportError('npm install'))
-}).catch(() => reportError('git pull'))
+            })
+        })
+    })
+})
