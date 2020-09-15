@@ -14,6 +14,7 @@
   },
   "devDependencies": {},
   "scripts": {
+    "watch": "nodemon index.js",
     "deploy": "node index.js"
   },
   "repository": {
